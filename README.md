@@ -29,7 +29,16 @@ Tested on 9.1 on-premises. Needs the Web API, so CRM 2016 (8.x) or later; on old
 - **Set Properties** – opens the step's own Set Properties window (update, create, email, custom activity, stop, …).
 - **Edit condition** – opens the condition editor of an *If* / *Otherwise, if* branch.
 
-The designer saves every edit to the server at once; the panel cannot hold it back. So the panel keeps a copy of the
+### Adding steps
+
+- **+** on a step opens the designer's own Add Step list (built-in steps and your custom activities, with a search box).
+  Pick **Before** or **After**, then a step type. Only types the designer allows at that spot are listed; on a branch
+  header that means more branches (*Conditional Branch*, *Default Action*, …).
+- **+ Add step** in an empty branch adds the first step there.
+- The new step appears where you asked, also next to steps you moved but have not applied yet.
+  Fill it in with **Set Properties**.
+
+The designer saves every edit or added step to the server at once; the panel cannot hold it back. So the panel keeps a copy of the
 process from when you opened it: **Cancel** and **Reset** write that copy back (and reload the page), **Apply** keeps
 the edits. If you close the browser tab while the panel has edits, the browser asks first; leaving anyway keeps the edits.
 Lookups (e.g. which child workflow) are not in the panel; edit those in the designer.

@@ -11,7 +11,7 @@ Upload `dist/workflow-step-editor-<version>.zip` (see "Build the upload" in `REA
 **Name** (from the manifest): Workflow Step Editor for Dynamics 365
 
 **Summary** (from the manifest, 132 characters max):
-Move and edit steps of classic workflows, actions and dialogs in Dynamics 365 / CRM with drag and drop. By Sepehr Jafarian.
+Move, add and edit steps of classic workflows, actions and dialogs in Dynamics 365 / CRM with drag and drop. By Sepehr Jafarian.
 
 **Description:**
 
@@ -28,6 +28,11 @@ EDIT STEPS
 • Change the inline dropdowns of steps such as Change status and Stop workflow right in the panel
 • Open Set Properties and Edit condition for any step from the panel
 • Edits are applied with Apply and undone with Cancel, together with your moves
+
+ADD STEPS
+• Add any step type before or after a step, or into an empty branch, with the + button
+• Includes your custom workflow activities, with a search box to find them
+• Only the step types the designer allows at that spot are offered
 
 SAFE BY DESIGN
 • Steps are moved as exact copies of the designer's own saved definition, so Dynamics accepts them unchanged

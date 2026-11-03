@@ -70,7 +70,7 @@
   var head = el('div', 'wfp-head');
   var title = el('h2', 'wfp-title', 'Edit steps');
   title.id = 'wfp-title';
-  var hint = el('div', 'wfp-hint', 'Drag a step to move it; drag it further left to take it out of a branch. Keyboard: focus a step and press Alt+↑ / Alt+↓. Edit steps with their dropdowns, Set Properties or Edit condition. Apply keeps all changes; Cancel undoes them.');
+  var hint = el('div', 'wfp-hint', 'Drag a step to move it; drag it further left to take it out of a branch. Keyboard: focus a step and press Alt+↑ / Alt+↓. Edit steps with their dropdowns, Set Properties or Edit condition; add steps with +. Apply keeps all changes; Cancel undoes them.');
   var counter = el('span', 'wfp-counter');
   var resetBtn = el('button', 'wfp-btn', 'Reset');
   var cancelBtn = el('button', 'wfp-btn', 'Cancel');
@@ -351,15 +351,20 @@
     try {
       var res = await fetch(api + '?$select=xaml', { headers: { Accept: 'application/json', 'OData-Version': '4.0' } });
       if (!res.ok) throw new Error(await errorText(res));
-      var wf = await res.json(), old = state, model = build(), lost = 0;
+      var wf = await res.json(), old = state, model = build(), lost = 0, added = null;
       if (!old) return;
       state = { snapshot: old.snapshot, original: wf.xaml, xaml: wf.xaml, etag: wf['@odata.etag'], root: model.root, nodes: model.nodes, moves: 0, log: [] };
-      old.log.forEach(function (m) {
-        var n = state.nodes[m.id], c = state.nodes[m.container];
-        if (!n || !c || !moveTo(n, c, m.index, true)) lost++;
-      });
-      render();
-      say(lost ? 'Step updated, but ' + lost + ' of your moves could not be re-applied.' : 'Step updated. Apply keeps the change, Cancel undoes it.', !!lost);
+      old.log.forEach(function (m) { if (!replay(m)) lost++; });
+      if (adding) {
+        // The designer put the new step next to its own copy of the anchor; move it to the panel's spot.
+        var fresh = Object.keys(state.nodes).filter(function (id) { return !adding.ids[id]; }).map(function (id) { return state.nodes[id]; });
+        added = fresh.filter(function (n) { return fresh.indexOf(n.parent) < 0; })[0];
+        if (added && draggable(added) && !replay({ id: added.id, targetId: adding.targetId, position: adding.position })) lost++;
+        adding = null;
+      }
+      render(added && added.id);
+      say(lost ? 'Step updated, but ' + lost + ' of your moves could not be re-applied.' :
+        (added ? 'Step added.' : 'Step updated.') + ' Apply keeps the change, Cancel undoes it.', !!lost);
     } catch (err) {
       say('Could not refresh the panel: ' + err.message + ' Reload the page.', true);
     } finally {
@@ -396,7 +401,14 @@
       list.appendChild(renderNode(c));
       if (slots) list.appendChild(slot(n, i + 1));
     });
-    if (slots && !n.children.length) list.firstChild.classList.add('wfp-empty');
+    if (slots && !n.children.length) {
+      list.firstChild.classList.add('wfp-empty');
+      if (canAdd() && anchorIn(n.id)) {
+        var add = el('button', 'wfp-btn wfp-add wfp-add-here', '+ Add step');
+        add.type = 'button';
+        list.firstChild.appendChild(add);
+      }
+    }
     return list;
   }
 
@@ -433,6 +445,13 @@
       edit.type = 'button';
       row.appendChild(edit);
     }
+    if (canAdd()) {
+      var add = el('button', 'wfp-btn wfp-add', '+');
+      add.type = 'button';
+      add.title = 'Add a step before or after this one';
+      add.setAttribute('aria-label', 'Add a step next to ' + (n.title || n.summary || n.id));
+      row.appendChild(add);
+    }
     row.setAttribute('aria-label', (TYPES[n.id.replace(/\d+$/, '')] || n.kind) + ': ' + (n.title || n.summary || n.id));
     box.appendChild(row);
     if (n.children.length || holdsSteps(n)) box.appendChild(renderChildren(n));
@@ -458,12 +477,155 @@
     return line;
   }
 
+  // --- adding: through the designer's own Add Step menu, so it decides what may go where ---
+
+  // Set by the designer once it has loaded, which can be after this script runs.
+  function canAdd() { return typeof showWorkStepMenu === 'function' && !!window.addStepMenuCtrl; }
+  var adding = null; // { ids, targetId, position }: an add waiting for the designer to redraw
+  var menu = el('div', 'wfp-menu');
+  menu.setAttribute('role', 'dialog');
+  menu.setAttribute('aria-label', 'Add step');
+  dialog.appendChild(menu);
+
+  // A designer step to add relative to, inside the given step container.
+  function anchorIn(containerId) {
+    return document.querySelector('table[id="NoStep"][parent="' + containerId + '"]') ||
+      [].find.call(document.querySelectorAll('table[stepname][parent="' + containerId + '"]'), function (t) { return t.id !== 'NoStep'; });
+  }
+
+  // Select the anchor in the designer and let it work out which step types are allowed there.
+  function selectInDesigner(anchor) {
+    ResetSelectedStep();
+    SelectStep(anchor);
+    showWorkStepMenu();
+  }
+
+  // The designer's Add Step menu as { title, action, group } items, enabled ones only.
+  function addItems() {
+    var items = [], xml = addStepMenuCtrl.get_menuXml();
+    (function walk(node, group) {
+      [].forEach.call(node.childNodes, function (c) {
+        if (c.nodeType !== 1) return;
+        if (c.getAttribute('type') === '2') return walk(c, c.getAttribute('title'));
+        if (c.getAttribute('type') === '1' && c.getAttribute('disabled') !== 'true' && c.getAttribute('action')) {
+          items.push({ title: c.getAttribute('title'), action: c.getAttribute('action'), group: group });
+        }
+      });
+    })(xml.documentElement || xml, '');
+    return items;
+  }
+
+  function openMenu(btn) {
+    var row = btn.closest('.wfp-row'), id = row ? btn.closest('.wfp-node').dataset.id : btn.closest('.wfp-slot').dataset.container;
+    var anchor = row ? document.getElementById(id) : anchorIn(id);
+    if (!anchor) return say('This spot is not in the designer any more. Cancel and reload the page.', true);
+    selectInDesigner(anchor);
+    var items = addItems(), position = 'after';
+    menu.textContent = '';
+    if (row) {
+      var side = el('div', 'wfp-side');
+      ['before', 'after'].forEach(function (p) {
+        var b = el('button', 'wfp-btn' + (p === position ? ' wfp-on' : ''), p === 'before' ? 'Before' : 'After');
+        b.type = 'button';
+        b.setAttribute('aria-pressed', p === position);
+        b.addEventListener('click', function () {
+          position = p;
+          side.querySelectorAll('button').forEach(function (o) { o.classList.toggle('wfp-on', o === b); o.setAttribute('aria-pressed', o === b); });
+        });
+        side.appendChild(b);
+      });
+      menu.appendChild(side);
+    }
+    var search = el('input', 'wfp-search');
+    search.type = 'search';
+    search.placeholder = 'Search step types…';
+    search.setAttribute('aria-label', 'Search step types');
+    var list = el('div', 'wfp-menu-list');
+    menu.append(search, list);
+    if (!items.length) list.appendChild(el('div', 'wfp-summary', 'The designer allows no step here.'));
+    var groups = {};
+    items.forEach(function (it) {
+      var b = el('button', 'wfp-menu-item', it.title);
+      b.type = 'button';
+      b.dir = 'auto';
+      b.addEventListener('click', function () {
+        closeMenu();
+        // Row: next to that step in the panel. Empty branch: into it.
+        add(it, anchor, row ? position : 'after', row ? { targetId: id, position: position } : { targetId: id, position: 'first' });
+      });
+      if (!it.group) return list.appendChild(b);
+      if (!groups[it.group]) {
+        groups[it.group] = el('details', 'wfp-group');
+        groups[it.group].appendChild(el('summary', '', it.group));
+        list.appendChild(groups[it.group]);
+      }
+      groups[it.group].appendChild(b);
+    });
+    search.addEventListener('input', function () {
+      var q = search.value.trim().toLowerCase();
+      list.querySelectorAll('.wfp-menu-item').forEach(function (b) { b.hidden = q && b.textContent.toLowerCase().indexOf(q) < 0; });
+      list.querySelectorAll('.wfp-group').forEach(function (g) {
+        var hit = g.querySelector('.wfp-menu-item:not([hidden])');
+        g.hidden = !hit && !(q && g.firstChild.textContent.toLowerCase().indexOf(q) >= 0);
+        if (q && g.firstChild.textContent.toLowerCase().indexOf(q) >= 0) g.querySelectorAll('.wfp-menu-item').forEach(function (b) { b.hidden = false; });
+        g.open = !!q;
+      });
+    });
+    var r = btn.getBoundingClientRect();
+    menu.style.display = 'flex';
+    menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = (r.bottom + 4 + menu.offsetHeight < innerHeight ? r.bottom + 4 : Math.max(8, r.top - 4 - menu.offsetHeight)) + 'px';
+    menu.opener = btn;
+    search.focus();
+  }
+
+  function closeMenu() {
+    if (menu.style.display !== 'flex') return;
+    menu.style.display = 'none';
+    if (menu.opener && menu.opener.isConnected) menu.opener.focus();
+  }
+
+  // Run the designer's own add command for a menu item, e.g. addCreateEntityStep() or addCustomActivityStep("…").
+  function add(item, anchor, direction, place) {
+    if (busy()) return;
+    var m = /^\s*(\w+)\((?:"([0-9a-fA-F-]*)")?\)\s*;?\s*$/.exec(item.action);
+    if (!m || typeof window[m[1]] !== 'function') return say('"' + item.title + '" cannot be added from the panel; add it in the designer.', true);
+    var ids = {};
+    Object.keys(state.nodes).forEach(function (k) { ids[k] = 1; });
+    adding = { ids: ids, targetId: place.targetId, position: place.position };
+    var saved = window._insertDirection;
+    try {
+      selectInDesigner(anchor);
+      window._insertDirection = direction;
+      window[m[1]].apply(window, m[2] !== undefined ? [m[2]] : []);
+    } catch (err) {
+      adding = null;
+      say('Could not add the step: ' + err.message, true);
+    } finally {
+      window._insertDirection = saved; // the command has read it already
+    }
+  }
+
+  body.addEventListener('click', function (e) {
+    var b = e.target.closest('.wfp-add');
+    if (!b) return;
+    if (menu.style.display === 'flex' && menu.opener === b) return closeMenu();
+    openMenu(b);
+  });
+  menu.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
+  });
+  document.addEventListener('pointerdown', function (e) {
+    if (menu.style.display === 'flex' && !menu.contains(e.target) && !e.target.closest('.wfp-add')) closeMenu();
+  }, true);
+  body.addEventListener('scroll', closeMenu);
+
   // --- moving ---
 
   // Move node n into container at slot index (slot k sits before the k-th child).
   // Returns false if the move was refused. quiet: skip re-rendering (used when replaying moves).
   function moveTo(n, container, index, quiet) {
-    var kids = container.children, k = kids.indexOf(n), slotIndex = index;
+    var kids = container.children, k = kids.indexOf(n);
     if (dialog.classList.contains('wfp-saving')) return false;
     if (k >= 0 && (index === k || index === k + 1)) return true;
     if (!allowed(n, container)) return false;
@@ -483,9 +645,18 @@
     kids.splice(index, 0, n);
     n.parent = container;
     state.moves++;
-    state.log.push({ id: n.id, container: container.id, index: slotIndex });
+    state.log.push({ id: n.id, targetId: targetId, position: position });
     if (!quiet) render(n.id);
     return true;
+  }
+
+  // Redo a logged move after the designer redrew: next to the same neighbour, so steps added since don't shift it.
+  function replay(m) {
+    var n = state.nodes[m.id], t = state.nodes[m.targetId];
+    if (!n || !t) return false;
+    if (m.position === 'first') return moveTo(n, t, 0, true);
+    var k = t.parent.children.indexOf(t);
+    return moveTo(n, t.parent, m.position === 'after' ? k + 1 : k, true);
   }
 
   body.addEventListener('keydown', function (e) {
@@ -502,7 +673,7 @@
 
   body.addEventListener('pointerdown', function (e) {
     var row = e.target.closest('.wfp-row[data-drag]');
-    if (!row || e.button !== 0 || e.target.closest('.wfp-edit, .wfp-select')) return;
+    if (!row || e.button !== 0 || e.target.closest('.wfp-edit, .wfp-add, .wfp-select')) return;
     drag = { node: state.nodes[row.parentNode.dataset.id], row: row, x: e.clientX, y: e.clientY, started: false, slot: null };
     row.setPointerCapture(e.pointerId);
   });
