@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Workflow Step Editor for Dynamics 365",
   "short_name": "Step Editor",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Move, add, edit and delete steps of classic workflows, actions and dialogs in Dynamics 365 / CRM. By Sepehr Jafarian.",
   "minimum_chrome_version": "111",
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },

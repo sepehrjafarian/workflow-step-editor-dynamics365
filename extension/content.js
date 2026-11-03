@@ -175,12 +175,25 @@
     return { root: root, nodes: nodes };
   }
 
+  // Check every step of the model is in the saved XAML; returns the id of the first one that is not.
+  // The designer does not save an empty branch whose condition is not configured yet: those are only
+  // marked unsaved (nothing can be dropped into them).
+  function checkSaved(model, xaml) {
+    var tree = WfDragXaml.parse(xaml);
+    return Object.keys(model.nodes).filter(function (id) {
+      var n = model.nodes[id];
+      if (n.kind === 'root' || (holdsSteps(n) ? WfDragXaml.findContainer(tree, id) : WfDragXaml.findStep(tree, id))) return false;
+      if (BRANCH[n.kind] && !n.children.length) { n.unsaved = true; return false; }
+      return true;
+    })[0];
+  }
+
   function draggable(n) { return n.kind !== 'root' && !BRANCH[n.kind]; }
   function holdsSteps(n) { return n.kind === 'root' || !!BRANCH[n.kind] || n.kind === PAGE; }
   function inside(n, ancestor) { for (; n; n = n.parent) if (n === ancestor) return true; return false; }
 
   function allowed(n, container) {
-    if (inside(container, n)) return false;
+    if (container.unsaved || inside(container, n)) return false;
     if ((n.kind === PROMPT) !== (container.kind === PAGE)) return false;
     if (container.kind === 'root' && n.kind !== STAGE &&
         container.children.some(function (c) { return c.kind === STAGE; })) return false;
@@ -203,12 +216,9 @@
       if (!res.ok) throw new Error(await errorText(res));
       var wf = await res.json();
       if (wf.statecode !== 0) throw new Error('Deactivate the process before editing steps.');
-      var model = build(), tree = WfDragXaml.parse(wf.xaml);
-      Object.keys(model.nodes).forEach(function (id) {
-        var n = model.nodes[id];
-        var found = n.kind === 'root' || (holdsSteps(n) ? WfDragXaml.findContainer(tree, id) : WfDragXaml.findStep(tree, id));
-        if (!found) throw new Error('Step ' + id + ' is not in the saved process. Reload the page and try again.');
-      });
+      var model = build();
+      var missing = checkSaved(model, wf.xaml);
+      if (missing) throw new Error('Step ' + missing + ' is not in the saved process. Reload the page and try again.');
       // snapshot: the process as it was when the panel opened; Cancel writes it back to undo step edits.
       state = { snapshot: wf.xaml, original: wf.xaml, xaml: wf.xaml, etag: wf['@odata.etag'], root: model.root, nodes: model.nodes, moves: 0, log: [] };
       overlay.style.display = 'flex';
@@ -353,6 +363,7 @@
       if (!res.ok) throw new Error(await errorText(res));
       var wf = await res.json(), old = state, model = build(), lost = 0, added = null;
       if (!old) return;
+      checkSaved(model, wf.xaml);
       state = { snapshot: old.snapshot, original: wf.xaml, xaml: wf.xaml, etag: wf['@odata.etag'], root: model.root, nodes: model.nodes, moves: 0, log: [] };
       old.log.forEach(function (m, i) {
         // A neighbour deleted since only matters if this was the step's last move.
