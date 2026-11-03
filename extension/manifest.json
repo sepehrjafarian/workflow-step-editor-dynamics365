@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Workflow Step Editor for Dynamics 365",
+  "short_name": "Step Editor",
+  "version": "1.0.0",
+  "description": "Move and edit steps of classic workflows, actions and dialogs in Dynamics 365 / CRM with drag and drop. By Sepehr Jafarian.",
+  "minimum_chrome_version": "111",
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "include_globs": ["*/sfa/workflow/edit.aspx*", "*/SFA/workflow/edit.aspx*", "*/SFA/WORKFLOW/EDIT.ASPX*", "*/sfa/Workflow/edit.aspx*"],
+      "js": ["xaml-move.js", "content.js"],
+      "css": ["content.css"],
+      "world": "MAIN",
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}
