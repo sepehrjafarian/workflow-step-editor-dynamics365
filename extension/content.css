@@ -224,3 +224,5 @@
 .wfp-group > summary { padding: 5px 8px; color: #605e5c; font-weight: 600; cursor: pointer; border-radius: 3px; }
 .wfp-group > summary:hover { background: #f3f2f1; }
 .wfp-group > .wfp-menu-item { padding-left: 22px; }
+.wfp-btn.wfp-delete { flex: none; min-width: 0; width: 26px; padding: 2px 0; font-size: 16px; line-height: 18px; align-self: center; color: #605e5c; }
+.wfp-btn.wfp-delete:hover:not(:disabled) { background: #fde7e9; border-color: #a4262c; color: #a4262c; }

@@ -70,7 +70,7 @@
   var head = el('div', 'wfp-head');
   var title = el('h2', 'wfp-title', 'Edit steps');
   title.id = 'wfp-title';
-  var hint = el('div', 'wfp-hint', 'Drag a step to move it; drag it further left to take it out of a branch. Keyboard: focus a step and press Alt+↑ / Alt+↓. Edit steps with their dropdowns, Set Properties or Edit condition; add steps with +. Apply keeps all changes; Cancel undoes them.');
+  var hint = el('div', 'wfp-hint', 'Drag a step to move it; drag it further left to take it out of a branch. Keyboard: focus a step and press Alt+↑ / Alt+↓. Edit steps with their dropdowns, Set Properties or Edit condition; add steps with +, delete them with × (or the Delete key). Apply keeps all changes; Cancel undoes them.');
   var counter = el('span', 'wfp-counter');
   var resetBtn = el('button', 'wfp-btn', 'Reset');
   var cancelBtn = el('button', 'wfp-btn', 'Cancel');
@@ -354,7 +354,10 @@
       var wf = await res.json(), old = state, model = build(), lost = 0, added = null;
       if (!old) return;
       state = { snapshot: old.snapshot, original: wf.xaml, xaml: wf.xaml, etag: wf['@odata.etag'], root: model.root, nodes: model.nodes, moves: 0, log: [] };
-      old.log.forEach(function (m) { if (!replay(m)) lost++; });
+      old.log.forEach(function (m, i) {
+        // A neighbour deleted since only matters if this was the step's last move.
+        if (!replay(m) && !old.log.slice(i + 1).some(function (l) { return l.id === m.id; })) lost++;
+      });
       if (adding) {
         // The designer put the new step next to its own copy of the anchor; move it to the panel's spot.
         var fresh = Object.keys(state.nodes).filter(function (id) { return !adding.ids[id]; }).map(function (id) { return state.nodes[id]; });
@@ -362,9 +365,11 @@
         if (added && draggable(added) && !replay({ id: added.id, targetId: adding.targetId, position: adding.position })) lost++;
         adding = null;
       }
+      var gone = deleting && !state.nodes[deleting];
+      deleting = null;
       render(added && added.id);
-      say(lost ? 'Step updated, but ' + lost + ' of your moves could not be re-applied.' :
-        (added ? 'Step added.' : 'Step updated.') + ' Apply keeps the change, Cancel undoes it.', !!lost);
+      var what = added ? 'Step added.' : gone ? 'Step deleted.' : 'Step updated.';
+      say(lost ? what + ' ' + lost + ' of your moves could not be re-applied.' : what + ' Apply keeps the change, Cancel undoes it.', !!lost);
     } catch (err) {
       say('Could not refresh the panel: ' + err.message + ' Reload the page.', true);
     } finally {
@@ -444,6 +449,13 @@
       var edit = el('button', 'wfp-btn wfp-edit', n.edit);
       edit.type = 'button';
       row.appendChild(edit);
+    }
+    if (canDelete()) {
+      var del = el('button', 'wfp-btn wfp-delete', '×');
+      del.type = 'button';
+      del.title = 'Delete this step';
+      del.setAttribute('aria-label', 'Delete ' + (n.title || n.summary || n.id));
+      row.appendChild(del);
     }
     if (canAdd()) {
       var add = el('button', 'wfp-btn wfp-add', '+');
@@ -620,6 +632,41 @@
   }, true);
   body.addEventListener('scroll', closeMenu);
 
+  // --- deleting: through the designer's own Delete command (it asks for confirmation itself) ---
+
+  function canDelete() { return typeof deleteStep === 'function' && !!document.getElementById('_MBdeleteStep'); }
+  var deleting = null; // id of a step the designer was asked to delete
+
+  function ids(n, out) {
+    n.children.forEach(function (c) { out.push(c.id); ids(c, out); });
+    return out;
+  }
+
+  function remove(n) {
+    if (busy()) return;
+    var t = document.getElementById(n.id);
+    if (!t) return say('This step is not in the designer any more. Cancel and reload the page.', true);
+    // Deleting the only If branch deletes its whole condition.
+    var whole = n.kind === 'IfCondition' && n.parent.children.length === 1 ? n.parent : n;
+    var inDesigner = [].map.call((document.getElementById(whole.id) || t).querySelectorAll('table[stepname]'), function (s) { return s.id; })
+      .filter(function (id) { return id !== 'NoStep'; }).sort().join();
+    if (inDesigner !== ids(whole, []).sort().join()) {
+      // The designer would delete what it has inside, not what the panel shows inside.
+      return say('Steps were moved into or out of this one. Apply your moves first, then delete it.', true);
+    }
+    selectInDesigner(t);
+    if (document.getElementById('_MBdeleteStep').getAttribute('disabled')) {
+      return say('The designer does not allow deleting this step.', true);
+    }
+    deleting = n.id;
+    deleteStep();
+  }
+
+  body.addEventListener('click', function (e) {
+    var b = e.target.closest('.wfp-delete');
+    if (b) remove(state.nodes[b.closest('.wfp-node').dataset.id]);
+  });
+
   // --- moving ---
 
   // Move node n into container at slot index (slot k sits before the k-th child).
@@ -653,7 +700,8 @@
   // Redo a logged move after the designer redrew: next to the same neighbour, so steps added since don't shift it.
   function replay(m) {
     var n = state.nodes[m.id], t = state.nodes[m.targetId];
-    if (!n || !t) return false;
+    if (!n) return true; // the step was deleted
+    if (!t) return false;
     if (m.position === 'first') return moveTo(n, t, 0, true);
     var k = t.parent.children.indexOf(t);
     return moveTo(n, t.parent, m.position === 'after' ? k + 1 : k, true);
@@ -661,6 +709,7 @@
 
   body.addEventListener('keydown', function (e) {
     var row = e.target.closest('.wfp-row[data-drag]');
+    if (row && e.target === row && e.key === 'Delete' && canDelete()) { e.preventDefault(); return remove(state.nodes[row.parentNode.dataset.id]); }
     if (!row || e.target.tagName === 'SELECT' || !e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
     e.preventDefault();
     var n = state.nodes[row.parentNode.dataset.id], k = n.parent.children.indexOf(n);
@@ -673,7 +722,7 @@
 
   body.addEventListener('pointerdown', function (e) {
     var row = e.target.closest('.wfp-row[data-drag]');
-    if (!row || e.button !== 0 || e.target.closest('.wfp-edit, .wfp-add, .wfp-select')) return;
+    if (!row || e.button !== 0 || e.target.closest('.wfp-edit, .wfp-add, .wfp-delete, .wfp-select')) return;
     drag = { node: state.nodes[row.parentNode.dataset.id], row: row, x: e.clientX, y: e.clientY, started: false, slot: null };
     row.setPointerCapture(e.pointerId);
   });

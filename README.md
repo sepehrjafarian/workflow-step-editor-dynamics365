@@ -38,7 +38,14 @@ Tested on 9.1 on-premises. Needs the Web API, so CRM 2016 (8.x) or later; on old
 - The new step appears where you asked, also next to steps you moved but have not applied yet.
   Fill it in with **Set Properties**.
 
-The designer saves every edit or added step to the server at once; the panel cannot hold it back. So the panel keeps a copy of the
+### Deleting steps
+
+- **×** on a step (or the **Delete** key on a focused step) runs the designer's own Delete, with its own confirmation.
+  Deleting a condition, branch or page deletes what is inside it.
+- If you moved steps into or out of that step and have not applied the moves yet, the panel asks you to apply them
+  first: the designer would otherwise delete what it has inside, not what the panel shows inside.
+
+The designer saves every edit, added or deleted step to the server at once; the panel cannot hold it back. So the panel keeps a copy of the
 process from when you opened it: **Cancel** and **Reset** write that copy back (and reload the page), **Apply** keeps
 the edits. If you close the browser tab while the panel has edits, the browser asks first; leaving anyway keeps the edits.
 Lookups (e.g. which child workflow) are not in the panel; edit those in the designer.
